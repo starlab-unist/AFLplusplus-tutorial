@@ -49,25 +49,22 @@ ARG fuzzer_path=fuzzers/${fuzzer_name}
 ENV FUZZER 	${MAGMA_R}/${fuzzer_path}
 USER root:root
 RUN mkdir -p ${FUZZER} && chown magma:magma ${FUZZER}
-COPY --chown=magma:magma ${magma_root}/_magma_cache/${fuzzer_path} ${FUZZER}/
+COPY --chown=magma:magma ${magma_root}/${fuzzer_path} ${FUZZER}/
 RUN ${FUZZER}/preinstall.sh
+USER magma:magma
+RUN ${FUZZER}/fetch.sh
+RUN ${FUZZER}/build.sh
 
 ARG target_name
 ARG target_path=targets/${target_name}
 ENV TARGET 	${MAGMA_R}/${target_path}
 USER root:root
 RUN mkdir -p ${TARGET} && chown magma:magma ${TARGET}
-COPY --chown=magma:magma ${magma_root}/_magma_cache/${target_path} ${TARGET}/
+COPY --chown=magma:magma ${magma_root}/${target_path} ${TARGET}/
 RUN ${TARGET}/preinstall.sh
 USER magma:magma
+RUN ${TARGET}/fetch.sh
 RUN ${MAGMA}/apply_patches.sh
-
-# To avoid recompiling target programs on every AFL++ code change,
-# we copy only AFL++'s instrumentation code and compile target programs in advance.
-# As long as the instrumentation code remains unchanged, modifying AFL++ does not
-# trigger redundant recompilation of target programs.
-COPY --chown=magma:magma ${magma_root}/AFLplusplus/instrumentation ${FUZZER}/repo/instrumentation
-RUN ${FUZZER}/build.sh
 
 ## Configuration parameters
 ARG isan
@@ -87,9 +84,5 @@ ENV LIBS -l:magma.o -lrt
 ENV LDFLAGS -L"${OUT}" -g
 
 RUN ${FUZZER}/instrument.sh
-
-# Rebuilding an image affected by AFL++ code changes (excluding instrumentation) starts from this point.
-COPY --chown=magma:magma ${magma_root}/AFLplusplus ${FUZZER}/repo
-RUN ${FUZZER}/build.sh
 
 ENTRYPOINT "${MAGMA}/run.sh"

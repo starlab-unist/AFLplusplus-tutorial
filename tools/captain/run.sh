@@ -234,7 +234,47 @@ cleanup()
 
 trap cleanup EXIT
 
-# schedule campaigns
+# fetch all source codes of fuzzers and targets in advance, for taking advantage of cache
+source "$MAGMA/tools/captain/cache.sh"
+export CACHE="$MAGMA/_magma_cache"
+FETCH_FAIL=0
+mkdir -p "$CACHE"
+
+for FUZZER_NAME in "${FUZZERS[@]}"; do
+  # fuzzer cache
+  if ! fetch_with_cache \
+      "fuzzers" \
+      "$FUZZER_NAME" \
+      "$MAGMA/fuzzers/$FUZZER_NAME" \
+      "$CACHE/fuzzers/$FUZZER_NAME" \
+      "$MAGMA/fuzzers/$FUZZER_NAME/fetch.sh" \
+      "FUZZER"; then
+    FETCH_FAIL=1
+    continue
+  fi
+
+  TARGETS=($(get_var_or_default "$FUZZER_NAME" 'TARGETS'))
+  for TARGET_NAME in "${TARGETS[@]}"; do
+    # target cache
+    if ! fetch_with_cache \
+        "targets" \
+        "$TARGET_NAME" \
+        "$MAGMA/targets/$TARGET_NAME" \
+        "$CACHE/targets/$TARGET_NAME" \
+        "$MAGMA/targets/$TARGET_NAME/fetch.sh" \
+        "TARGET"; then
+      FETCH_FAIL=1
+      continue
+    fi
+  done
+done
+
+if [ "$FETCH_FAIL" -eq 1 ]; then
+  exit 1
+fi
+
+# build Docker images
+BUILT_PAIRS=()
 for FUZZER in "${FUZZERS[@]}"; do
     export FUZZER
 
@@ -242,28 +282,33 @@ for FUZZER in "${FUZZERS[@]}"; do
     for TARGET in "${TARGETS[@]}"; do
         export TARGET
 
-        export FUZZARGS="$(get_var_or_default $FUZZER $TARGET 'FUZZARGS')"
-
-        # build the Docker image
         IMG_NAME="magma/$FUZZER/$TARGET"
         echo_time "Building $IMG_NAME"
-        if ! "$MAGMA"/tools/captain/build.sh &> \
-            "${LOGDIR}/${FUZZER}_${TARGET}_build.log"; then
+        if "$MAGMA"/tools/captain/build.sh &> "${LOGDIR}/${FUZZER}_${TARGET}_build.log"; then
+            BUILT_PAIRS+=("${FUZZER}"$'\t'"${TARGET}")
+        else
             echo_time "Failed to build $IMG_NAME. Check build log for info."
-            continue
         fi
+    done
+done
 
-        PROGRAMS=($(get_var_or_default $FUZZER $TARGET 'PROGRAMS'))
-        for PROGRAM in "${PROGRAMS[@]}"; do
-            export PROGRAM
-            export ARGS="$(get_var_or_default $FUZZER $TARGET $PROGRAM 'ARGS')"
+# schedule campaigns
+for pair in "${BUILT_PAIRS[@]}"; do
+    IFS=$'\t' read -r FUZZER TARGET <<< "$pair"
+    export FUZZER TARGET
 
-            echo_time "Starting campaigns for $PROGRAM $ARGS"
-            for ((i=0; i<$REPEAT; i++)); do
-                export NUMWORKERS="$(get_var_or_default $FUZZER 'CAMPAIGN_WORKERS')"
-                export AFFINITY=$(allocate_workers)
-                start_ex &
-            done
+    export FUZZARGS="$(get_var_or_default "$FUZZER" "$TARGET" 'FUZZARGS')"
+
+    PROGRAMS=($(get_var_or_default "$FUZZER" "$TARGET" 'PROGRAMS'))
+    for PROGRAM in "${PROGRAMS[@]}"; do
+        export PROGRAM
+        export ARGS="$(get_var_or_default "$FUZZER" "$TARGET" "$PROGRAM" 'ARGS')"
+
+        echo_time "Starting campaigns for $PROGRAM $ARGS"
+        for ((i=0; i<REPEAT; i++)); do
+            export NUMWORKERS="$(get_var_or_default "$FUZZER" 'CAMPAIGN_WORKERS')"
+            export AFFINITY="$(allocate_workers)"
+            start_ex &
         done
     done
 done
