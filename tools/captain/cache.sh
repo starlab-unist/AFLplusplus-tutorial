@@ -95,7 +95,9 @@ fetch_with_cache() {
     mkdir -p "$(dirname "$cache_dir")"
   fi
   
-  rsync -a --checksum "$src_dir" "$(dirname "$cache_dir")/"
+  rsync -a --checksum \
+    --exclude='/*.sh' \
+    "$src_dir"/ "$cache_dir/"
 
   if [ "$cache_lookup_res" -eq 0 ]; then
     return 0

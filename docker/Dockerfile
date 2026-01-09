@@ -50,6 +50,7 @@ ENV FUZZER 	${MAGMA_R}/${fuzzer_path}
 USER root:root
 RUN mkdir -p ${FUZZER} && chown magma:magma ${FUZZER}
 COPY --chown=magma:magma ${magma_root}/_magma_cache/${fuzzer_path} ${FUZZER}/
+COPY --chown=magma:magma ${magma_root}/${fuzzer_path}/preinstall.sh ${FUZZER}/
 RUN ${FUZZER}/preinstall.sh
 
 ARG target_name
@@ -58,6 +59,7 @@ ENV TARGET 	${MAGMA_R}/${target_path}
 USER root:root
 RUN mkdir -p ${TARGET} && chown magma:magma ${TARGET}
 COPY --chown=magma:magma ${magma_root}/_magma_cache/${target_path} ${TARGET}/
+COPY --chown=magma:magma ${magma_root}/${target_path}/preinstall.sh ${TARGET}/
 RUN ${TARGET}/preinstall.sh
 USER magma:magma
 RUN ${MAGMA}/apply_patches.sh
@@ -67,6 +69,7 @@ RUN ${MAGMA}/apply_patches.sh
 # As long as the instrumentation code remains unchanged, modifying AFL++ does not
 # trigger redundant recompilation of target programs.
 COPY --chown=magma:magma ${magma_root}/AFLplusplus/instrumentation ${FUZZER}/repo/instrumentation
+COPY --chown=magma:magma ${magma_root}/${fuzzer_path}/build.sh ${FUZZER}/
 RUN ${FUZZER}/build.sh
 
 ## Configuration parameters
@@ -86,10 +89,15 @@ ENV CXXFLAGS ${BUILD_FLAGS}
 ENV LIBS -l:magma.o -lrt
 ENV LDFLAGS -L"${OUT}" -g
 
+COPY --chown=magma:magma ${magma_root}/${fuzzer_path}/instrument.sh ${FUZZER}/
+COPY --chown=magma:magma ${magma_root}/${target_path}/build.sh ${TARGET}/
 RUN ${FUZZER}/instrument.sh
 
 # Rebuilding an image affected by AFL++ code changes (excluding instrumentation) starts from this point.
 COPY --chown=magma:magma ${magma_root}/AFLplusplus ${FUZZER}/repo
 RUN ${FUZZER}/build.sh
 
+COPY --chown=magma:magma ${magma_root}/${fuzzer_path}/run.sh ${FUZZER}/
+COPY --chown=magma:magma ${magma_root}/${fuzzer_path}/runonce.sh ${FUZZER}/
+COPY --chown=magma:magma ${magma_root}/${fuzzer_path}/findings.sh ${FUZZER}/
 ENTRYPOINT "${MAGMA}/run.sh"
