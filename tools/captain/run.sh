@@ -35,6 +35,7 @@ TMPFS_SIZE=${TMPFS_SIZE:-50g}
 export POLL=${POLL:-5}
 export TIMEOUT=${TIMEOUT:-1m}
 
+mkdir -p "$WORKDIR"
 WORKDIR="$(realpath "$WORKDIR")"
 export ARDIR="$WORKDIR/ar"
 export CACHEDIR="$WORKDIR/cache"
@@ -291,6 +292,11 @@ for FUZZER in "${FUZZERS[@]}"; do
         fi
     done
 done
+
+if [ ! -z $BUILD_ONLY ]; then
+    echo_time "Skip running as BUILD_ONLY is set"
+    exit 0
+fi
 
 # schedule campaigns
 for pair in "${BUILT_PAIRS[@]}"; do
